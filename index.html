@@ -76,11 +76,9 @@
 
             <main class="flex-1 overflow-y-auto pb-32">
                 <div class="relative">
-                    <!-- Capa atualizada -->
                     <img src="https://i.postimg.cc/k56PbSxP/download.gif" alt="Capa" class="h-32 w-full object-cover object-center bg-gray-200" fetchpriority="high" decoding="async">
                     <div class="absolute -bottom-10 left-4">
                         <div class="w-20 h-20 rounded-full border-4 border-white bg-gray-200 overflow-hidden relative shadow-sm">
-                            <!-- Foto de perfil atualizada -->
                             <img src="https://i.postimg.cc/VkXNb31J/5033040293653056777.jpg" alt="Vitoria" class="w-full h-full object-cover">
                         </div>
                     </div>
@@ -117,7 +115,6 @@
                     </div>
                     
                     <div class="grid grid-cols-2 gap-2 mb-2">
-                        <!-- Prévia 1 Atualizada (GIF interativo) -->
                         <div class="video-container relative rounded-lg overflow-hidden bg-black aspect-[3/4] group shadow-sm cursor-pointer">
                             <img class="preview-video w-full h-full object-cover" src="https://i.postimg.cc/hjWb0F77/image.gif" alt="Prévia 1">
                             <div class="play-overlay absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity">
@@ -132,7 +129,6 @@
                             </div>
                         </div>
                         
-                        <!-- Prévia 2 Atualizada (GIF interativo) -->
                         <div class="video-container relative rounded-lg overflow-hidden bg-black aspect-[3/4] group shadow-sm cursor-pointer">
                             <img class="preview-video w-full h-full object-cover" src="https://i.postimg.cc/SsRqV505/(1).gif" alt="Prévia 2">
                             <div class="play-overlay absolute inset-0 flex items-center justify-center bg-black/20 transition-opacity">
@@ -148,7 +144,6 @@
                         </div>
                     </div>
                     
-                    <!-- Fundo do indicador de mídias atualizado com a foto de perfil correta -->
                     <div class="mt-2 relative rounded-lg overflow-hidden bg-gray-200 h-20 flex items-center justify-center bg-[url('https://i.postimg.cc/VkXNb31J/5033040293653056777.jpg')] bg-cover bg-center shadow-inner">
                         <div class="absolute inset-0 backdrop-blur-md bg-black/60"></div>
                         <div class="relative z-10 flex items-center justify-center gap-3">
@@ -203,7 +198,7 @@
             </main>
 
             <div class="absolute bottom-0 left-0 w-full bg-white border-t border-gray-200 p-4 shadow-up z-40">
-                <button onclick="processCheckout()" class="w-full bg-of-blue hover:bg-of-darkBlue active:scale-[0.98] text-white rounded-2xl py-4 px-4 font-black text-lg transition-all flex items-center justify-center gap-2 btn-pulse shadow-lg">
+                <button onclick="processCheckout()" id="btn-checkout" class="w-full bg-of-blue hover:bg-of-darkBlue disabled:bg-of-gray disabled:opacity-70 active:scale-[0.98] text-white rounded-2xl py-4 px-4 font-black text-lg transition-all flex items-center justify-center gap-2 btn-pulse shadow-lg">
                     <i class="fa-brands fa-pix text-xl mr-1"></i>
                     <span id="cta-text">DESBLOQUEAR POR R$ 19,99</span>
                 </button>
@@ -354,22 +349,34 @@
 
         // --- PROCESSAR CHECKOUT (GERAR PIX) ---
         async function processCheckout() {
+            const btn = document.getElementById('btn-checkout');
+            
+            // Trava de segurança para evitar múltiplos cliques simultâneos
+            if (btn && btn.disabled) return; 
+            
             const btnSpan = document.getElementById('cta-text');
             const originalText = btnSpan.innerHTML;
             
             try {
+                if (btn) btn.disabled = true; // Desativa o botão
                 btnSpan.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Preparando...';
                 
-                // Se por acaso o click_id ainda não foi resolvido no load, tenta novamente
+                // Resolve click_id caso ainda não tenha sido carregado
                 if (!globalClickId) {
                     await resolveClickId(); 
                 }
 
-                // Fallback de segurança caso a API falhe, para não travar a venda
                 const click_id = globalClickId || "lead_padrao_" + Math.random().toString(36).substring(2, 7);
                 const value_cents = Math.round(currentPrice * 100);
 
-                console.log("📤 Gerando PIX para click_id:", click_id);
+                // Lógica de nome do produto baseada no valor
+                const nomesProduto = { 
+                    19.99: "PRODUTO123", 
+                    12.00: "MiniApp" 
+                };
+                const productName = nomesProduto[currentPrice] || "Acesso vip";
+
+                console.log("📤 Gerando PIX para click_id:", click_id, "| Produto:", productName);
 
                 const response = await fetch(`${HOTTRACK_API_URL}/api/pix/generate`, {
                     method: 'POST',
@@ -379,26 +386,33 @@
                     },
                     body: JSON.stringify({ 
                         click_id: click_id,
-                        value_cents: value_cents
+                        value_cents: value_cents,
+                        product: { name: productName } // Envio do nome do produto mapeado
                     })
                 });
 
                 const data = await response.json();
                 console.log("📥 Retorno da API HotTrack (PIX):", data);
 
-                if (response.ok && data.qr_code_text && data.transaction_id) {
-                    currentTransactionId = data.transaction_id; 
+                // Relaxamos a condição. Se veio o texto do QR Code, consideramos sucesso para renderizar a tela.
+                if (data && data.qr_code_text) {
+                    // Garante a captura do ID da transação, independente se a API chama de 'transaction_id' ou apenas 'id'
+                    currentTransactionId = data.transaction_id || data.id || null; 
+                    
                     document.getElementById('pix-code').value = data.qr_code_text;
                     document.getElementById('pix-qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.qr_code_text)}`;
                     openPixModal();
                 } else {
-                    throw new Error(data.message || "Erro na geração do PIX");
+                    // Caso a API não retorne o QR Code de fato, lança um erro real
+                    throw new Error(data.message || "Falha ao gerar o código PIX");
                 }
             } catch (error) {
                 console.error("❌ Erro no processCheckout:", error);
-                alert("Erro ao processar o pagamento. Tente novamente em instantes.");
+                alert("Ocorreu um problema de conexão. Por favor, tente novamente em alguns segundos.");
             } finally {
+                // Restaura o botão e o texto original
                 btnSpan.innerHTML = originalText;
+                if (btn) btn.disabled = false; 
             }
         }
 
