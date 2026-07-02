@@ -286,7 +286,6 @@
         let currentTransactionId = null; 
         let offerStep = 0; 
         
-        // Trava global para impedir múltiplas requisições simultâneas
         let isProcessing = false;
         
         const offerCascade = [12.00];
@@ -351,17 +350,15 @@
 
         // --- PROCESSAR CHECKOUT (GERAR PIX) ---
         async function processCheckout() {
-            // Se já estiver processando, ignora qualquer novo clique
             if (isProcessing) return; 
             
             const btnSpan = document.getElementById('cta-text');
             const originalText = btnSpan ? btnSpan.innerHTML : '';
             
             try {
-                isProcessing = true; // Ativa a trava de segurança
+                isProcessing = true; 
                 if (btnSpan) btnSpan.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Preparando...';
                 
-                // Resolve click_id caso ainda não tenha sido carregado
                 if (!globalClickId) {
                     await resolveClickId(); 
                 }
@@ -369,14 +366,11 @@
                 const click_id = globalClickId || "lead_padrao_" + Math.random().toString(36).substring(2, 7);
                 const value_cents = Math.round(currentPrice * 100);
 
-                // Lógica de nome do produto baseada no valor
                 const nomesProduto = { 
                     19.99: "PRODUTO123", 
                     12.00: "MiniApp" 
                 };
                 const productName = nomesProduto[currentPrice] || "Acesso vip";
-
-                console.log("📤 Gerando PIX para click_id:", click_id, "| Produto:", productName);
 
                 const response = await fetch(`${HOTTRACK_API_URL}/api/pix/generate`, {
                     method: 'POST',
@@ -387,12 +381,11 @@
                     body: JSON.stringify({ 
                         click_id: click_id,
                         value_cents: value_cents,
-                        product: { name: productName } // Envio do nome do produto
+                        product: { name: productName }
                     })
                 });
 
                 const data = await response.json();
-                console.log("📥 Retorno da API HotTrack (PIX):", data);
 
                 if (data && data.qr_code_text) {
                     currentTransactionId = data.transaction_id || data.id || null; 
@@ -405,12 +398,9 @@
                 }
             } catch (error) {
                 console.error("❌ Erro no processCheckout:", error);
-                // Exibe alerta de erro real
-                alert("Ocorreu um problema de conexão. Por favor, tente novamente em alguns segundos.");
+                alert("Erro ao processar o pagamento. Tente novamente em instantes.");
             } finally {
                 if (btnSpan) btnSpan.innerHTML = originalText;
-                
-                // Libera a trava depois de 1,5 segundos (evita clique duplo no caso de erro de rede)
                 setTimeout(() => { isProcessing = false; }, 1500); 
             }
         }
@@ -454,7 +444,7 @@
             }
         }
 
-        // --- UI E INTERAÇÕES ---
+        // --- UI E INTERAÇÕES (CORRIGIDO PARA GIFS) ---
         function setupOneTimeVideos() {
             const containers = document.querySelectorAll('.video-container');
             containers.forEach(container => {
@@ -464,6 +454,14 @@
                 let hasPlayed = false;
                 let isLocked = false;
                 
+                // Nova função que trava o conteúdo suportando Imagem ou Vídeo
+                const lockContent = () => {
+                    if (typeof video.pause === 'function') video.pause();
+                    video.classList.add('video-locked'); 
+                    lockedOverlay.classList.remove('hidden'); 
+                    isLocked = true;
+                };
+
                 container.addEventListener('click', () => {
                     if (isLocked) {
                         window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -472,16 +470,18 @@
                     if (!hasPlayed) {
                         hasPlayed = true;
                         playOverlay.classList.add('hidden'); 
-                        const playPromise = video.play();
-                        if (playPromise !== undefined) {
-                            playPromise.then(() => {
-                                setTimeout(() => {
-                                    video.pause();
-                                    video.classList.add('video-locked'); 
-                                    lockedOverlay.classList.remove('hidden'); 
-                                    isLocked = true;
-                                }, 3000); 
-                            }).catch(e => console.log("Autoplay evitado"));
+                        
+                        // Checa se é um vídeo real (tem a função play)
+                        if (typeof video.play === 'function') {
+                            const playPromise = video.play();
+                            if (playPromise !== undefined) {
+                                playPromise.then(() => {
+                                    setTimeout(lockContent, 3000); 
+                                }).catch(e => console.log("Autoplay evitado"));
+                            }
+                        } else {
+                            // Se for GIF (tag img), apenas espera o tempo e trava
+                            setTimeout(lockContent, 3000);
                         }
                     }
                 });
@@ -583,7 +583,11 @@
 
             overlay.classList.remove('hidden');
             setTimeout(() => overlay.classList.replace('opacity-0', 'opacity-100'), 10);
-            document.querySelectorAll('.preview-video').forEach(v => v.pause());
+            
+            // TRAVA AQUI TAMBÉM: Só pausa se for vídeo
+            document.querySelectorAll('.preview-video').forEach(v => {
+                if (typeof v.pause === 'function') v.pause();
+            });
             
             offerStep++;
         }
@@ -610,7 +614,11 @@
                 overlay.classList.replace('opacity-0', 'opacity-100');
                 modal.classList.add('slide-up');
             }, 10);
-            document.querySelectorAll('.preview-video').forEach(v => v.pause());
+            
+            // TRAVA AQUI TAMBÉM: Aqui era onde dava o erro que disparava o alert!
+            document.querySelectorAll('.preview-video').forEach(v => {
+                if (typeof v.pause === 'function') v.pause();
+            });
         }
 
         function closePixModal() {
